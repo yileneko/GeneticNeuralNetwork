@@ -1,3 +1,0 @@
-/home/meow/ProgrammingProjects/genetic-neural-network/build/CMakeFiles/gen_nn.dir
-/home/meow/ProgrammingProjects/genetic-neural-network/build/CMakeFiles/edit_cache.dir
-/home/meow/ProgrammingProjects/genetic-neural-network/build/CMakeFiles/rebuild_cache.dir
