@@ -30,11 +30,11 @@ vector<vector<vector<Nerve>>> nerveNetLst;
 vector<QA> qaLst = {};
 int nowQAID;
 
-double crossoverP = 0.20;
+double crossoverP = 0.40;
 int crossoverParentN = 2;
 int tournamentSelectionK = 5;
-double mutateP = 0.10;
-double mutateSigma = 0.30;
+double mutateP = 0.30;
+double mutateSigma = 0.50;
 
 bool isRunning;
 
@@ -128,40 +128,46 @@ double calNerveOutput(const vector<double> input, const Nerve &nerve) {
   return ret;
 }
 
-vector<vector<Nerve>> mutate(const vector<vector<Nerve>> target) {
-  vector<vector<Nerve>> ret = target;
-
+void mutate(vector<vector<Nerve>> &target) {
   int mutateN = (uniform_int_distribution<int>(0, hiddenGenNum * mutateP))(gen);
   for (int k = 0; k < mutateN; k++) {
     int l = (uniform_int_distribution<int>(1, target.size() - 2))(gen);
     int i = (uniform_int_distribution<int>(0, target[l].size() - 1))(gen);
-    int g =
-        (uniform_int_distribution<int>(0, target[l][i].weight.size() - 1))(gen);
-    double offset =
-        (uniform_real_distribution<double>(-mutateSigma, mutateSigma))(gen);
+    bool isWeight = (uniform_int_distribution<int>(0, 1))(gen);
+    if (isWeight) {
+      int g = (uniform_int_distribution<int>(0, target[l][i].weight.size() -
+                                                    1))(gen);
+      double offset =
+          (uniform_real_distribution<double>(-mutateSigma, mutateSigma))(gen);
 
-    ret[l][i].weight[g] += offset;
+      target[l][i].weight[g] += offset;
+    } else {
+      double offset =
+          (uniform_real_distribution<double>(-mutateSigma, mutateSigma))(gen);
+      target[l][i].offset += offset;
+    }
   }
-
-  return ret;
 }
 
-vector<vector<Nerve>> crossover(const vector<vector<Nerve>> &parent1,
-                                const vector<vector<Nerve>> &parent2) {
-  vector<vector<Nerve>> ret = parent1;
-
+void crossover(const vector<vector<Nerve>> &parent1,
+               const vector<vector<Nerve>> &parent2,
+               vector<vector<Nerve>> &target) {
+  target = parent1;
   int crossoverN =
       (uniform_int_distribution<int>(1, hiddenGenNum * crossoverP))(gen);
   for (int k = 0; k < crossoverN; k++) {
     int l = (uniform_int_distribution<int>(1, parent1.size() - 2))(gen);
     int i = (uniform_int_distribution<int>(0, parent2[l].size() - 1))(gen);
-    int g = (uniform_int_distribution<int>(0, parent1[l][i].weight.size() - 1))(
-        gen);
+    bool isWeight = (uniform_int_distribution<int>(0, 1))(gen);
+    if (isWeight) {
+      int g = (uniform_int_distribution<int>(0, parent1[l][i].weight.size() -
+                                                    1))(gen);
 
-    ret[l][i].weight[g] = parent2[l][i].weight[g];
+      target[l][i].weight[g] = parent2[l][i].weight[g];
+    } else {
+      target[l][i].offset = parent2[l][i].offset;
+    }
   }
-
-  return ret;
 }
 
 double relu(double x) { return (x > 0) ? x : 0; }
@@ -211,25 +217,21 @@ void init() {
 
 double forward(int netID, vector<double> input, double answer) {
   double loss;
-  vector<double> newInput = {};
+  vector<vector<double>> layerInputs;
+  layerInputs.push_back(input);
   for (int i = 1; i < layerNum; i++) {
-    newInput.clear();
+    layerInputs.push_back({});
     for (int j = 0; j < layerNerveNumLst[i]; j++) {
-      double result = calNerveOutput(input, nerveNetLst[netID][i][j]);
+      double result =
+          calNerveOutput(layerInputs[i - 1], nerveNetLst[netID][i][j]);
       if (i == layerNum - 1)
         result = sigmoid(result);
       else
         result = relu(result);
-      newInput.push_back(result);
+      layerInputs[i].push_back(result);
     }
-    input = newInput;
   }
-  for (int i = 0; i < input.size(); i++) {
-    input[i] = abs(input[i]);
-    input[i] = min(input[i], 1.0);
-    input[i] = max(input[i], 0.0);
-  }
-  double predict = input[0];
+  double predict = layerInputs[layerNum - 2][0];
   loss = (predict - answer) * (predict - answer);
   return loss;
 }
@@ -285,9 +287,9 @@ void epoch() {
   vector<int> clst = tournamentSelection(fx, gen);
   vector<vector<Nerve>> newNet;
   for (int i = 0; i < clst.size() - 1; i++) {
-    newNet = crossover(nerveNetLst[clst[i]], nerveNetLst[clst[i + 1]]);
+    crossover(nerveNetLst[clst[i]], nerveNetLst[clst[i + 1]],
+              nerveNetLst[worstNetID]);
   }
-  nerveNetLst[worstNetID] = newNet;
 
   nowQAID++;
   if (nowQAID >= qaLst.size()) {
@@ -296,7 +298,7 @@ void epoch() {
 
   // 变异
   int mID = uniform_int_distribution<int>(0, layerNum - 1)(gen);
-  nerveNetLst[mID] = mutate(nerveNetLst[mID]);
+  mutate(nerveNetLst[mID]);
 }
 
 int main() {
