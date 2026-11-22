@@ -1,0 +1,1 @@
+/usr/bin/c++ -g -Wl,--dependency-file=CMakeFiles/gen_nn.dir/link.d CMakeFiles/gen_nn.dir/src/main.cpp.o -o gen_nn
