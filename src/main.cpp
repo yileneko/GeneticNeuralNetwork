@@ -1,4 +1,6 @@
+#include "json.hpp"
 #include <execution>
+#include <fstream>
 #include <iostream>
 #include <limits>
 #include <random>
@@ -6,6 +8,7 @@
 #include <vector>
 
 using namespace std;
+using json = nlohmann::json;
 
 struct QA {
   vector<double> q;
@@ -24,7 +27,7 @@ mt19937 gen(rd());
 
 int netNum = 16;
 int layerNum = 4;
-vector<int> layerNerveNumLst = {4, 30, 30, 1};
+vector<int> layerNerveNumLst = {4, 10, 10, 1};
 int hiddenGenNum;
 vector<vector<vector<Nerve>>> nerveNetLst;
 vector<QA> qaLst = {};
@@ -220,6 +223,7 @@ void init() {
   for (int a = 0; a < netNum; a++) {
     nerveNetLst.push_back({});
     hiddenGenNum = 0;
+    nerveID = 0;
     for (int i = 0; i < layerNum; i++) {
       if (i > 0 && i < layerNum - 1) {
         hiddenGenNum += layerNerveNumLst[i - 1] * layerNerveNumLst[i];
@@ -243,6 +247,11 @@ void init() {
       }
     }
   }
+
+  for (int a = 0; a < netNum; ++a) {
+    cout << "Net " << a << " first neuron id: " << nerveNetLst[a][0][0].id
+         << endl;
+  }
 }
 
 double forward(int netID, vector<double> input, double answer) {
@@ -261,8 +270,10 @@ double forward(int netID, vector<double> input, double answer) {
       layerInputs[i].push_back(result);
     }
   }
-  double predict = layerInputs[layerNum - 2][0];
+  double predict = layerInputs[layerNum - 1][0];
   loss = (predict - answer) * (predict - answer);
+  // cout << "netID: " << netID << " predict: " << predict << " answer: " <<
+  // answer << endl;
   return loss;
 }
 
@@ -281,6 +292,31 @@ double calNetFitness(int netID) {
   return ret;
 }
 
+void saveModel(int netID, const string &path) {
+  json data;
+
+  data["layer"]["num"] = nerveNetLst[netID].size();
+  data["layer"]["sizes"] = json::array();
+  for (const auto &layer : nerveNetLst[netID]) {
+    data["layer"]["sizes"].push_back(layer.size());
+  }
+
+  data["neurons"] = json::array();
+  for (const auto &layer : nerveNetLst[netID]) {
+    json layerArr = json::array();
+    for (const auto &neuron : layer) {
+      layerArr.push_back({{"id", neuron.id},
+                          {"offset", neuron.offset},
+                          {"weights", neuron.weight}});
+    }
+    data["neurons"].push_back(layerArr);
+  }
+
+  ofstream writer(path);
+  writer << data.dump(2);
+  writer.close();
+}
+
 void epoch() {
   if (!isRunning)
     return;
@@ -296,7 +332,8 @@ void epoch() {
   for (int a = 0; a < netNum; a++) {
     double fitness = calNetFitness(a);
     fx.push_back(fitness);
-    if (fitness >= 0.99) {
+    if (fitness >= 0.93) {
+      saveModel(a, "model.json");
       cout << "INFO: Training ended" << endl;
       isRunning = false;
     }
