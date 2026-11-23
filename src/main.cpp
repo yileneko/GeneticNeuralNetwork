@@ -30,11 +30,15 @@ vector<vector<vector<Nerve>>> nerveNetLst;
 vector<QA> qaLst = {};
 int nowQAID;
 
-double crossoverP = 0.40;
+double crossoverP = 0.50;
 int crossoverParentN = 2;
 int tournamentSelectionK = 5;
-double mutateP = 0.30;
+double mutateP = 0.40;
 double mutateSigma = 0.50;
+double learnRate = 0.10;
+double selectRatio = 0.2;
+double testBatchP = 0.10;
+int testBatchSize;
 
 bool isRunning;
 
@@ -170,6 +174,30 @@ void crossover(const vector<vector<Nerve>> &parent1,
   }
 }
 
+void learnElite(int eliteNetID, int learnerNetID) {
+  for (int a = 0; a < selectRatio * hiddenGenNum; a++) {
+    int l = (uniform_int_distribution<int>(1, nerveNetLst[eliteNetID].size() -
+                                                  2))(gen);
+    int i = (uniform_int_distribution<int>(
+        0, nerveNetLst[eliteNetID][l].size() - 1))(gen);
+    bool isWeight = (uniform_int_distribution<int>(0, 1))(gen);
+    if (isWeight) {
+      int g = (uniform_int_distribution<int>(
+          0, nerveNetLst[eliteNetID][l][i].weight.size() - 1))(gen);
+
+      nerveNetLst[learnerNetID][l][i].weight[g] +=
+          (nerveNetLst[eliteNetID][l][i].weight[g] -
+           nerveNetLst[learnerNetID][l][i].weight[g]) *
+          learnRate;
+    } else {
+      nerveNetLst[learnerNetID][l][i].offset +=
+          (nerveNetLst[eliteNetID][l][i].offset -
+           nerveNetLst[learnerNetID][l][i].offset) *
+          learnRate;
+    }
+  }
+}
+
 double relu(double x) { return (x > 0) ? x : 0; }
 
 double sigmoid(double x) { return 1.0 / (1.0 + exp(-x)); }
@@ -183,6 +211,8 @@ void init() {
   qaLst = generateConcentricCircles();
 
   shuffleQALst(qaLst);
+
+  testBatchSize = qaLst.size() * testBatchP;
 
   nowQAID = 0;
 
@@ -240,12 +270,14 @@ double calNetFitness(int netID) {
   double ret;
 
   double lossSum = 0;
-  for (int i = 0; i < qaLst.size(); i++) {
-    double loss = forward(netID, qaLst[i].q, qaLst[i].a);
+  uniform_int_distribution<> dis(0, qaLst.size() - 1);
+  for (int i = 0; i < testBatchSize; i++) {
+    int a = dis(gen);
+    double loss = forward(netID, qaLst[a].q, qaLst[a].a);
     lossSum += loss;
   }
 
-  ret = 1 - lossSum / qaLst.size();
+  ret = 1 - lossSum / testBatchSize;
   return ret;
 }
 
@@ -281,6 +313,9 @@ void epoch() {
   cout << "the best fitness: " << bestNetFitness << endl;
   mutateP = (bestNetFitness > 0.85) ? 0.03 : 0.1;
   mutateSigma = (bestNetFitness > 0.85) ? 0.08 : 0.25;
+
+  // 学习精英
+  learnElite(bestNetID, worstNetID);
 
   // 交叉
   // 锦标赛选择
