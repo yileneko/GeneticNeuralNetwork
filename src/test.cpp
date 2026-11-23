@@ -71,6 +71,27 @@ inline vector<vector<Nerve>> loadModel(const string &path) {
   return net;
 }
 
+std::vector<QA> generateConcentricCircles(int samplesPerClass = 100) {
+  std::vector<QA> data;
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::normal_distribution<> noise(0, 0.1);
+
+  // 内圆（半径0.3，标签0）
+  for (int i = 0; i < samplesPerClass; ++i) {
+    double angle = std::uniform_real_distribution<>(0, 2 * M_PI)(gen);
+    double r = 0.3 + noise(gen);
+    data.push_back({{r * cos(angle), r * sin(angle)}, 0.0});
+  }
+  // 外环（半径0.6~0.9，标签1）
+  for (int i = 0; i < samplesPerClass; ++i) {
+    double angle = std::uniform_real_distribution<>(0, 2 * M_PI)(gen);
+    double r = std::uniform_real_distribution<>(0.6, 0.9)(gen) + noise(gen);
+    data.push_back({{r * cos(angle), r * sin(angle)}, 1.0});
+  }
+  return data;
+}
+
 int main(int argc, char *argv[]) {
   string modelPath = "model.json";
   if (argc >= 2)
@@ -84,12 +105,7 @@ int main(int argc, char *argv[]) {
     layerSizes.push_back(net[i].size());
   }
 
-  vector<QA> testData = {
-      {{0.28, 0.10}, 0.0},   {{-0.22, 0.18}, 0.0},  {{-0.31, -0.02}, 0.0},
-      {{0.04, -0.29}, 0.0},  {{0.33, -0.09}, 0.0},  {{0.75, 0.00}, 1.0},
-      {{-0.41, 0.70}, 1.0},  {{-0.82, -0.35}, 1.0}, {{0.63, -0.55}, 1.0},
-      {{-0.21, -0.88}, 1.0},
-  };
+  vector<QA> testData = generateConcentricCircles(500);
 
   double totalLoss = 0.0;
   int correct = 0;

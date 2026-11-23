@@ -329,10 +329,11 @@ void epoch() {
   double bestNetFitness = numeric_limits<double>::min();
   double worstNetFitness = numeric_limits<double>::max();
   vector<double> fx = {};
+  vector<int> netIDRank(netNum);
   for (int a = 0; a < netNum; a++) {
     double fitness = calNetFitness(a);
     fx.push_back(fitness);
-    if (fitness >= 0.93) {
+    if (fitness >= 0.95) {
       saveModel(a, "model.json");
       cout << "INFO: Training ended" << endl;
       isRunning = false;
@@ -346,13 +347,18 @@ void epoch() {
       bestNetFitness = fitness;
     }
   }
+  iota(netIDRank.begin(), netIDRank.end(), 0);
+  sort(netIDRank.begin(), netIDRank.end(),
+       [&](int a, int b) { return fx[a] > fx[b]; });
 
   cout << "the best fitness: " << bestNetFitness << endl;
   mutateP = (bestNetFitness > 0.85) ? 0.03 : 0.1;
   mutateSigma = (bestNetFitness > 0.85) ? 0.08 : 0.25;
 
   // 学习精英
-  learnElite(bestNetID, worstNetID);
+  for (int i = netIDRank.size() - 1; i >= netNum - 3; i--) {
+    learnElite(bestNetID, netIDRank[i]);
+  }
 
   // 交叉
   // 锦标赛选择
