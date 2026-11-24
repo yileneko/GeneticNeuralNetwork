@@ -1,4 +1,7 @@
+#include "json.hpp"
+#include <chrono>
 #include <execution>
+#include <fstream>
 #include <iostream>
 #include <limits>
 #include <random>
@@ -6,6 +9,7 @@
 #include <vector>
 
 using namespace std;
+using json = nlohmann::json;
 
 struct QA {
   vector<double> q;
@@ -133,7 +137,7 @@ double calNerveOutput(const vector<double> input, const Nerve &nerve) {
 void mutate(vector<vector<Nerve>> &target) {
   int mutateN = (uniform_int_distribution<int>(0, hiddenGenNum * mutateP))(gen);
   for (int k = 0; k < mutateN; k++) {
-    int l = (uniform_int_distribution<int>(1, target.size() - 2))(gen);
+    int l = (uniform_int_distribution<int>(1, target.size() - 1))(gen);
     int i = (uniform_int_distribution<int>(0, target[l].size() - 1))(gen);
     bool isWeight = (uniform_int_distribution<int>(0, 1))(gen);
     if (isWeight) {
@@ -158,7 +162,7 @@ void crossover(const vector<vector<Nerve>> &parent1,
   int crossoverN =
       (uniform_int_distribution<int>(1, hiddenGenNum * crossoverP))(gen);
   for (int k = 0; k < crossoverN; k++) {
-    int l = (uniform_int_distribution<int>(1, parent1.size() - 2))(gen);
+    int l = (uniform_int_distribution<int>(1, parent1.size() - 1))(gen);
     int i = (uniform_int_distribution<int>(0, parent2[l].size() - 1))(gen);
     bool isWeight = (uniform_int_distribution<int>(0, 1))(gen);
     if (isWeight) {
@@ -235,7 +239,7 @@ double forward(int netID, vector<double> input, double answer) {
       layerInputs[i].push_back(result);
     }
   }
-  double predict = layerInputs[layerNum - 2][0];
+  double predict = layerInputs[layerNum - 1][0];
   loss = (predict - answer) * (predict - answer);
   return loss;
 }
@@ -255,6 +259,31 @@ double calNetFitness(int netID) {
   return ret;
 }
 
+void saveModel(int netID, const string &path) {
+  json data;
+
+  data["layer"]["num"] = nerveNetLst[netID].size();
+  data["layer"]["sizes"] = json::array();
+  for (const auto &layer : nerveNetLst[netID]) {
+    data["layer"]["sizes"].push_back(layer.size());
+  }
+
+  data["neurons"] = json::array();
+  for (const auto &layer : nerveNetLst[netID]) {
+    json layerArr = json::array();
+    for (const auto &neuron : layer) {
+      layerArr.push_back({{"id", neuron.id},
+                          {"offset", neuron.offset},
+                          {"weights", neuron.weight}});
+    }
+    data["neurons"].push_back(layerArr);
+  }
+
+  ofstream writer(path);
+  writer << data.dump(2);
+  writer.close();
+}
+
 void epoch() {
   if (!isRunning)
     return;
@@ -271,6 +300,7 @@ void epoch() {
     double fitness = calNetFitness(a);
     fx.push_back(fitness);
     if (fitness >= 0.99) {
+      saveModel(a, "model.json");
       cout << "INFO: Training ended" << endl;
       isRunning = false;
     }
@@ -285,8 +315,6 @@ void epoch() {
   }
 
   cout << "the best fitness: " << bestNetFitness << endl;
-  mutateP = (bestNetFitness > 0.85) ? 0.03 : 0.1;
-  mutateSigma = (bestNetFitness > 0.85) ? 0.08 : 0.25;
 
   // 交叉
   // 锦标赛选择
@@ -310,8 +338,12 @@ void epoch() {
 int main() {
   init();
 
+  auto start = chrono::high_resolution_clock::now();
   while (isRunning)
     epoch();
+  auto end = chrono::high_resolution_clock::now();
+  chrono::duration<double> elapsed = end - start;
+  cout << "Training time: " << elapsed.count() << " seconds" << endl;
 
   return 0;
 }

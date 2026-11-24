@@ -1,4 +1,5 @@
 #include "json.hpp"
+#include <chrono>
 #include <execution>
 #include <fstream>
 #include <iostream>
@@ -27,21 +28,24 @@ mt19937 gen(rd());
 
 int netNum = 16;
 int layerNum = 4;
-vector<int> layerNerveNumLst = {4, 10, 10, 1};
+vector<int> layerNerveNumLst = {4, 30, 30, 1};
 int hiddenGenNum;
 vector<vector<vector<Nerve>>> nerveNetLst;
 vector<QA> qaLst = {};
 int nowQAID;
+int totalEpoch;
 
 double crossoverP = 0.50;
 int crossoverParentN = 2;
 int tournamentSelectionK = 5;
 double mutateP = 0.40;
 double mutateSigma = 0.50;
-double learnRate = 0.10;
-double selectRatio = 0.2;
-double testBatchP = 0.10;
+int changeNetInterval = 20;
+double testBatchP = 0.30;
 int testBatchSize;
+
+int groupNum = 4;
+int groupSize;
 
 bool isRunning;
 
@@ -67,12 +71,26 @@ vector<QA> generateConcentricCircles(int samplesPerClass = 100) {
   return data;
 }
 
+int netIDtoGroupID(int netID) { return netID / groupNum; }
+
 void shuffleQALst(vector<QA> &lst) {
   for (int i = 0; i < lst.size() - 1; i++) {
     // 当前和后面一个打乱
     double p = (uniform_real_distribution<double>(-1.0, 1.0))(gen);
     if (p >= 0.0) {
       QA tmp = lst[i];
+      lst[i] = lst[i + 1];
+      lst[i + 1] = tmp;
+    }
+  }
+}
+
+void shuffleIntLst(vector<int> &lst) {
+  for (int i = 0; i < lst.size() - 1; i++) {
+    // 当前和后面一个打乱
+    double p = (uniform_real_distribution<double>(-1.0, 1.0))(gen);
+    if (p >= 0.0) {
+      int tmp = lst[i];
       lst[i] = lst[i + 1];
       lst[i + 1] = tmp;
     }
@@ -97,7 +115,8 @@ int rouletteWheelSelection(const vector<double> &fx, mt19937 &gen) {
   return fx.size() - 1;
 }
 
-vector<int> tournamentSelection(const vector<double> &fx, mt19937 &gen) {
+vector<int> tournamentSelection(const vector<vector<double>> &fx, const int gid,
+                                mt19937 &gen) {
   /*
    * 从当前种群中随机抽取 k 个个体；
    * 比较这 k 个体的适应度；
@@ -111,8 +130,9 @@ vector<int> tournamentSelection(const vector<double> &fx, mt19937 &gen) {
     int bestID = -1;
     double bestFitness = numeric_limits<double>::min();
     for (int j = 0; j < tournamentSelectionK; j++) {
-      int id = uniform_int_distribution<int>(0, fx.size() - 1)(gen);
-      double fitness = fx[id];
+      int id = uniform_int_distribution<int>(gid * groupSize,
+                                             (gid + 1) * groupSize - 1)(gen);
+      double fitness = fx[netIDtoGroupID(id)][id % groupNum];
       if (fitness > bestFitness) {
         bestFitness = fitness;
         bestID = id;
@@ -138,7 +158,7 @@ double calNerveOutput(const vector<double> input, const Nerve &nerve) {
 void mutate(vector<vector<Nerve>> &target) {
   int mutateN = (uniform_int_distribution<int>(0, hiddenGenNum * mutateP))(gen);
   for (int k = 0; k < mutateN; k++) {
-    int l = (uniform_int_distribution<int>(1, target.size() - 2))(gen);
+    int l = (uniform_int_distribution<int>(1, target.size() - 1))(gen);
     int i = (uniform_int_distribution<int>(0, target[l].size() - 1))(gen);
     bool isWeight = (uniform_int_distribution<int>(0, 1))(gen);
     if (isWeight) {
@@ -163,7 +183,7 @@ void crossover(const vector<vector<Nerve>> &parent1,
   int crossoverN =
       (uniform_int_distribution<int>(1, hiddenGenNum * crossoverP))(gen);
   for (int k = 0; k < crossoverN; k++) {
-    int l = (uniform_int_distribution<int>(1, parent1.size() - 2))(gen);
+    int l = (uniform_int_distribution<int>(1, parent1.size() - 1))(gen);
     int i = (uniform_int_distribution<int>(0, parent2[l].size() - 1))(gen);
     bool isWeight = (uniform_int_distribution<int>(0, 1))(gen);
     if (isWeight) {
@@ -177,27 +197,15 @@ void crossover(const vector<vector<Nerve>> &parent1,
   }
 }
 
-void learnElite(int eliteNetID, int learnerNetID) {
-  for (int a = 0; a < selectRatio * hiddenGenNum; a++) {
-    int l = (uniform_int_distribution<int>(1, nerveNetLst[eliteNetID].size() -
-                                                  2))(gen);
-    int i = (uniform_int_distribution<int>(
-        0, nerveNetLst[eliteNetID][l].size() - 1))(gen);
-    bool isWeight = (uniform_int_distribution<int>(0, 1))(gen);
-    if (isWeight) {
-      int g = (uniform_int_distribution<int>(
-          0, nerveNetLst[eliteNetID][l][i].weight.size() - 1))(gen);
+void changeNet(const vector<int> &bestNetIDs, const vector<int> &worstNetIDs) {
+  vector<int> changeTargetGid(groupNum);
+  for (int i = 0; i < groupNum; i++) {
+    changeTargetGid[i] = i;
+  }
+  shuffleIntLst(changeTargetGid);
 
-      nerveNetLst[learnerNetID][l][i].weight[g] +=
-          (nerveNetLst[eliteNetID][l][i].weight[g] -
-           nerveNetLst[learnerNetID][l][i].weight[g]) *
-          learnRate;
-    } else {
-      nerveNetLst[learnerNetID][l][i].offset +=
-          (nerveNetLst[eliteNetID][l][i].offset -
-           nerveNetLst[learnerNetID][l][i].offset) *
-          learnRate;
-    }
+  for (int g = 0; g < groupNum; g++) {
+    nerveNetLst[worstNetIDs[g]] = nerveNetLst[bestNetIDs[changeTargetGid[g]]];
   }
 }
 
@@ -207,6 +215,9 @@ double sigmoid(double x) { return 1.0 / (1.0 + exp(-x)); }
 
 void init() {
   isRunning = true;
+  totalEpoch = 0;
+
+  groupSize = netNum / groupNum;
 
   nerveNetLst.clear();
   qaLst.clear();
@@ -223,7 +234,6 @@ void init() {
   for (int a = 0; a < netNum; a++) {
     nerveNetLst.push_back({});
     hiddenGenNum = 0;
-    nerveID = 0;
     for (int i = 0; i < layerNum; i++) {
       if (i > 0 && i < layerNum - 1) {
         hiddenGenNum += layerNerveNumLst[i - 1] * layerNerveNumLst[i];
@@ -247,11 +257,6 @@ void init() {
       }
     }
   }
-
-  for (int a = 0; a < netNum; ++a) {
-    cout << "Net " << a << " first neuron id: " << nerveNetLst[a][0][0].id
-         << endl;
-  }
 }
 
 double forward(int netID, vector<double> input, double answer) {
@@ -272,8 +277,6 @@ double forward(int netID, vector<double> input, double answer) {
   }
   double predict = layerInputs[layerNum - 1][0];
   loss = (predict - answer) * (predict - answer);
-  // cout << "netID: " << netID << " predict: " << predict << " answer: " <<
-  // answer << endl;
   return loss;
 }
 
@@ -324,49 +327,50 @@ void epoch() {
   vector<double> q = qaLst[nowQAID].q;
   double ans = qaLst[nowQAID].a;
 
-  int worstNetID = -1;
-  int bestNetID = -1;
   double bestNetFitness = numeric_limits<double>::min();
-  double worstNetFitness = numeric_limits<double>::max();
-  vector<double> fx = {};
-  vector<int> netIDRank(netNum);
+  vector<int> bestNetIDs(groupNum, 0);
+  vector<int> worstNetIDs(groupNum, 0);
+  vector<double> bestNetFs(groupNum, numeric_limits<double>::min());
+  vector<double> worstNetFs(groupNum, numeric_limits<double>::max());
+  vector<vector<double>> fx;
+  fx.clear();
+  for (int i = 0; i < groupNum; i++) {
+    fx.push_back({});
+  }
   for (int a = 0; a < netNum; a++) {
     double fitness = calNetFitness(a);
-    fx.push_back(fitness);
-    if (fitness >= 0.95) {
+    int netGroupID = netIDtoGroupID(a);
+    fx[netGroupID].push_back(fitness);
+    if (fitness >= 0.99) {
       saveModel(a, "model.json");
       cout << "INFO: Training ended" << endl;
       isRunning = false;
     }
-    if (fitness < worstNetFitness) {
-      worstNetID = a;
-      worstNetFitness = fitness;
-    }
-    if (fitness > bestNetFitness) {
-      bestNetID = a;
+    if (fitness > bestNetFitness)
       bestNetFitness = fitness;
+    if (fitness < worstNetFs[netGroupID]) {
+      worstNetIDs[netGroupID] = a;
+      worstNetFs[netGroupID] = fitness;
+    }
+    if (fitness > bestNetFs[netGroupID]) {
+      bestNetIDs[netGroupID] = a;
+      bestNetFs[netGroupID] = fitness;
     }
   }
-  iota(netIDRank.begin(), netIDRank.end(), 0);
-  sort(netIDRank.begin(), netIDRank.end(),
-       [&](int a, int b) { return fx[a] > fx[b]; });
 
   cout << "the best fitness: " << bestNetFitness << endl;
-  mutateP = (bestNetFitness > 0.85) ? 0.03 : 0.1;
-  mutateSigma = (bestNetFitness > 0.85) ? 0.08 : 0.25;
 
-  // 学习精英
-  for (int i = netIDRank.size() - 1; i >= netNum - 3; i--) {
-    learnElite(bestNetID, netIDRank[i]);
+  if (totalEpoch % changeNetInterval == 0) {
+    changeNet(bestNetIDs, worstNetIDs);
   }
 
   // 交叉
-  // 锦标赛选择
-  vector<int> clst = tournamentSelection(fx, gen);
-  vector<vector<Nerve>> newNet;
-  for (int i = 0; i < clst.size() - 1; i++) {
-    crossover(nerveNetLst[clst[i]], nerveNetLst[clst[i + 1]],
-              nerveNetLst[worstNetID]);
+  for (int g = 0; g < groupNum; g++) {
+    vector<int> clst = tournamentSelection(fx, g, gen);
+    for (int i = 0; i < clst.size() - 1; i++) {
+      crossover(nerveNetLst[clst[i]], nerveNetLst[clst[i + 1]],
+                nerveNetLst[worstNetIDs[g]]);
+    }
   }
 
   nowQAID++;
@@ -375,15 +379,26 @@ void epoch() {
   }
 
   // 变异
-  int mID = uniform_int_distribution<int>(0, layerNum - 1)(gen);
-  mutate(nerveNetLst[mID]);
+  for (int g = 0; g < groupNum; g++) {
+    int start = g * groupSize;
+    int end = (g + 1) * groupSize - 1;
+    int mID = uniform_int_distribution<int>(start, end)(gen);
+    mutate(nerveNetLst[mID]);
+  }
+
+  totalEpoch++;
 }
 
 int main() {
   init();
 
+  auto start = chrono::high_resolution_clock::now();
   while (isRunning)
     epoch();
+
+  auto end = chrono::high_resolution_clock::now();
+  chrono::duration<double> elapsed = end - start;
+  cout << "Training time: " << elapsed.count() << " seconds" << endl;
 
   return 0;
 }
