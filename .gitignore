@@ -1,2 +1,4 @@
 build/
-model.json
+model-classic.json
+model-egann.json
+model-island.json

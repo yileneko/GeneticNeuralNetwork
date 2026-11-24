@@ -1,3 +1,4 @@
+#include "elite-gann.h"
 #include "json.hpp"
 #include <chrono>
 #include <execution>
@@ -11,6 +12,7 @@
 using namespace std;
 using json = nlohmann::json;
 
+namespace EGANN {
 struct QA {
   vector<double> q;
   double a;
@@ -42,7 +44,7 @@ double mutateSigma = 0.50;
 double learnRate = 0.10;
 double learnNetP = 0.10;
 double selectRatio = 0.10;
-double testBatchP = 0.10;
+double testBatchP = 0.30;
 int testBatchSize;
 
 bool isRunning;
@@ -336,7 +338,7 @@ void epoch() {
     double fitness = calNetFitness(a);
     fx.push_back(fitness);
     if (fitness >= 0.99) {
-      saveModel(a, "model.json");
+      saveModel(a, "model-egann.json");
       cout << "INFO: Training ended" << endl;
       isRunning = false;
     }
@@ -354,8 +356,6 @@ void epoch() {
        [&](int a, int b) { return fx[a] > fx[b]; });
 
   cout << "the best fitness: " << bestNetFitness << endl;
-  mutateP = (bestNetFitness > 0.85) ? 0.03 : 0.1;
-  mutateSigma = (bestNetFitness > 0.85) ? 0.08 : 0.25;
 
   // 学习精英
   for (int i = netIDRank.size() - 1; i >= netNum * learnNetP; i--) {
@@ -381,7 +381,7 @@ void epoch() {
   mutate(nerveNetLst[mID]);
 }
 
-int main() {
+double startEGANN() {
   init();
 
   auto start = chrono::high_resolution_clock::now();
@@ -391,5 +391,7 @@ int main() {
   chrono::duration<double> elapsed = end - start;
   cout << "Training time: " << elapsed.count() << " seconds" << endl;
 
-  return 0;
+  return elapsed.count();
 }
+
+}; // namespace EGANN

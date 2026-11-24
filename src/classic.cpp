@@ -11,6 +11,7 @@
 using namespace std;
 using json = nlohmann::json;
 
+namespace classic {
 struct QA {
   vector<double> q;
   double a;
@@ -34,12 +35,13 @@ vector<vector<vector<Nerve>>> nerveNetLst;
 vector<QA> qaLst = {};
 int nowQAID;
 
+double oCrossoverP = 0.50;
 double crossoverP = 0.50;
 int crossoverParentN = 2;
 int tournamentSelectionK = 5;
 double mutateP = 0.40;
 double mutateSigma = 0.50;
-double testBatchP = 0.10;
+double testBatchP = 0.30;
 int testBatchSize;
 
 bool isRunning;
@@ -291,6 +293,7 @@ void epoch() {
   vector<double> q = qaLst[nowQAID].q;
   double ans = qaLst[nowQAID].a;
 
+  double bestNetF = numeric_limits<double>::min();
   int worstNetID = -1;
   int bestNetID = -1;
   double bestNetFitness = numeric_limits<double>::min();
@@ -300,9 +303,12 @@ void epoch() {
     double fitness = calNetFitness(a);
     fx.push_back(fitness);
     if (fitness >= 0.99) {
-      saveModel(a, "model.json");
+      saveModel(a, "model-classic.json");
       cout << "INFO: Training ended" << endl;
       isRunning = false;
+    }
+    if (fitness > bestNetF) {
+      bestNetF = fitness;
     }
     if (fitness < worstNetFitness) {
       worstNetID = a;
@@ -313,6 +319,8 @@ void epoch() {
       bestNetFitness = fitness;
     }
   }
+
+  crossoverP = (bestNetF >= 0.95) ? oCrossoverP * 0.3 : oCrossoverP;
 
   cout << "the best fitness: " << bestNetFitness << endl;
 
@@ -335,7 +343,7 @@ void epoch() {
   mutate(nerveNetLst[mID]);
 }
 
-int main() {
+double startClassic() {
   init();
 
   auto start = chrono::high_resolution_clock::now();
@@ -345,5 +353,7 @@ int main() {
   chrono::duration<double> elapsed = end - start;
   cout << "Training time: " << elapsed.count() << " seconds" << endl;
 
-  return 0;
+  return elapsed.count();
 }
+
+}; // namespace classic

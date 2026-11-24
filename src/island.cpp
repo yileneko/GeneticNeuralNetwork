@@ -1,3 +1,4 @@
+#include "island.h"
 #include "json.hpp"
 #include <chrono>
 #include <execution>
@@ -10,6 +11,8 @@
 
 using namespace std;
 using json = nlohmann::json;
+
+namespace island {
 
 struct QA {
   vector<double> q;
@@ -342,7 +345,7 @@ void epoch() {
     int netGroupID = netIDtoGroupID(a);
     fx[netGroupID].push_back(fitness);
     if (fitness >= 0.99) {
-      saveModel(a, "model.json");
+      saveModel(a, "model-island.json");
       cout << "INFO: Training ended" << endl;
       isRunning = false;
     }
@@ -389,7 +392,7 @@ void epoch() {
   totalEpoch++;
 }
 
-int main() {
+double startIsland() {
   init();
 
   auto start = chrono::high_resolution_clock::now();
@@ -400,5 +403,7 @@ int main() {
   chrono::duration<double> elapsed = end - start;
   cout << "Training time: " << elapsed.count() << " seconds" << endl;
 
-  return 0;
+  return elapsed.count();
 }
+
+}; // namespace island
